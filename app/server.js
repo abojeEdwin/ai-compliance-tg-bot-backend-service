@@ -28,10 +28,16 @@ bot.start(async (ctx) => {
 bot.on('text', async (ctx) => {
   const incomingText = ctx.message.text;
   const userId = ctx.from.id;
-
   const sessionKey = `tg:session:${userId}`;
-  const rawHistory = await redisClient.get(sessionKey);
-  let history = rawHistory ? JSON.parse(rawHistory) : [];
+
+  // Gracefully degrade to stateless mode if Redis is unavailable
+  let history = [];
+  try {
+    const rawHistory = await redisClient.get(sessionKey);
+    history = rawHistory ? JSON.parse(rawHistory) : [];
+  } catch (redisReadErr) {
+    console.error(`[Redis] Failed to read session for user ${userId}:`, redisReadErr.message);
+  }
 
   let workflowCtx = {
     telegramUserId: userId,
@@ -43,21 +49,25 @@ bot.on('text', async (ctx) => {
 
   try {
     workflowCtx = await routerNode.execute(workflowCtx);
-    
     workflowCtx = await ragNode.execute(workflowCtx);
 
     history.push({ role: 'user', content: incomingText });
     history.push({ role: 'chatbot', content: workflowCtx.ragAnswer });
     history = history.slice(-10);
 
-    await redisClient.setEx(sessionKey, 1800, JSON.stringify(history));
+    // Persist updated history — fail silently so the reply still goes through
+    try {
+      await redisClient.setEx(sessionKey, 1800, JSON.stringify(history));
+    } catch (redisWriteErr) {
+      console.error(`[Redis] Failed to write session for user ${userId}:`, redisWriteErr.message);
+    }
 
     await ctx.reply(workflowCtx.ragAnswer);
 
   } catch (error) {
+    console.error(`[Orchestrator] Error for user ${userId}:`, error.message);
     workflowCtx.error = error.message;
     workflowCtx = await errorNode.execute(workflowCtx);
-    
     await ctx.reply(workflowCtx.ragAnswer);
   }
 });
