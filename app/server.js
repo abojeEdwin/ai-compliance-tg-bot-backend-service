@@ -73,7 +73,7 @@ bot.on('text', async (ctx) => {
 });
 
 app.get('/health', (req, res) => {
-  res.status(200).json({ status: "active", engine: "custom-node" });
+  res.status(200).json({ status: "ok", engine: "custom-node" });
 });
 
 app.listen(PORT, () => {
