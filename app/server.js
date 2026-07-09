@@ -98,12 +98,35 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: "ok", engine: "custom-node", sessions: sessionStore.size });
 });
 
-app.listen(PORT, () => {
-  console.log(`📡 Express server monitoring health on port ${PORT}`);
-  
-  bot.launch().then(() => {
-    console.log('🤖 Telegram Automation Bot Engine actively listening...');
-  });
+// ---------------------------------------------------------------------------
+// Telegram webhook endpoint
+// Telegram POSTs every incoming update to this route in production
+// ---------------------------------------------------------------------------
+app.post('/webhook', (req, res) => {
+  bot.handleUpdate(req.body, res);
+});
+
+app.listen(PORT, async () => {
+  console.log(`📡 Express server listening on port ${PORT}`);
+
+  const webhookUrl = process.env.WEBHOOK_URL; // e.g. https://your-app.vercel.app/webhook
+
+  if (webhookUrl) {
+    // Production: register webhook with Telegram then wait for POSTs
+    try {
+      await bot.telegram.setWebhook(webhookUrl);
+      console.log(`🔗 Webhook registered: ${webhookUrl}`);
+      console.log('🤖 Bot ready (webhook mode)');
+    } catch (err) {
+      console.error('❌ Failed to set webhook:', err.message);
+    }
+  } else {
+    // Local development: fall back to long polling
+    console.log('⚠️  WEBHOOK_URL not set — starting in long-polling mode (local dev only)');
+    bot.launch().then(() => {
+      console.log('🤖 Telegram Bot Engine actively listening (polling)...');
+    });
+  }
 });
 
 process.once('SIGINT', () => bot.stop('SIGINT'));
